@@ -1,37 +1,94 @@
+/*
 
-// display acceleration in the y axis
-// include the library code: MMA 7260
+  Graphs the output of a Freescale MMA7260 micromachined accelerometer. The
+  graph is displayed on a ST7565 128x64 LCD.
+
+  Records the output of the accelerometer for a period (e.g. 60s) of time and 
+  graphs the max value for that period.
+    
+  This project was built as a simple seismograph.
+
+  The accelerometer is wired to analog 0,1,2 for x,y,z respectively. The 
+  sensitivity is set to 1.5G by wiring g-Select1 & 2 to gnd.
+  
+  The LCD is wired to digital pins 9, 8, 7, 6, 5 for SID, SCLK, A0, RST, CS.
+
+--
+Copyright (C) 2010 by Integrated Mapping Ltd
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+*/
+
+
+// import the lcd library
 #include "ST7565.h"
 
 // initialize the library with the numbers of the interface pins
+// SID, SCLK, A0, RST, CS
 ST7565 glcd(9, 8, 7, 6, 5);
 
+// stores the zero reference values
 int y0, x0, z0; 
 
-unsigned long xTot, yTot, zTot, readingsInPeriod;
+// number of second between graph updates. 60 seconds give just over 2 hrs
+// across the this display
+#define updatePeriod 5
 
+// number of 
+unsigned long readingsInPeriod;
 
+// max accelerometer magnitude for the period
+int maxForPeriod = 0;
+
+// used to sum accelerometer output for each period. used
+// to computer the average for the period
+unsigned long xTot, yTot, zTot; 
+
+// x,y values from the previous point on the graph
 int lastX = 0; 
 int lastY = 0;
 
-long elapsedTime, ct = 0;
-int callum = 0;
+unsigned long elapsedTime;
 
-int graphX0 = 0;
-int graphY0 = 9;
-int graphyYc = graphY0 + (64-graphY0)/2;
+// number of updates of the LCD, i.e. pixels in the x direction
+long ct = 0;
+
+// analog pins to read the accelerometer
+#define pinX 0
+#define pinY 1
+#define pinZ 2
 
 
+/* ------------------------------------------------------------------------------------------------------ */
 void setup()
 {
-  Serial.begin(9600);           // sets the serial port to 9600
 
+  // init the reference variables
   x0 = analogRead(0);       // read analog input pin 0
   y0 = analogRead(1);       // read analog input pin 1
   z0 = analogRead(2);       // read analog input pin 2
 
   readingsInPeriod = 0;
+  elapsedTime = millis();
 
+  // init the LCD
   glcd.st7565_init();
   glcd.st7565_command(CMD_DISPLAY_ON);
   glcd.st7565_command(CMD_SET_ALLPTS_NORMAL);
@@ -45,23 +102,16 @@ void setup()
 
 
 
-
+/* ------------------------------------------------------------------------------------------------------ */
 void loop() 
 {
   int x, y, z;
   int x1, y1, z1;
   
-  analogRead(0);
-  delay(5);
-  x = analogRead(0);       // read analog input pin 0
-
-  analogRead(1);       // read analog input pin 1
-  delay(5);
-  y = analogRead(1);       // read analog input pin 1
-
-  analogRead(2);       // read analog input pin 1
-  delay(5);
-  z = analogRead(2);       // read analog input pin 1
+  // read the x,y,z accelerometer values. 
+  x = analogRead(pinX);       
+  y = analogRead(pinY);       
+  z = analogRead(pinZ);       
   
   // total the readings
   readingsInPeriod++;
@@ -69,31 +119,22 @@ void loop()
   yTot += y;
   zTot += z;
 
-//  Serial.print(x, DEC);    // print the acceleration in the X axis
-//  Serial.print(" ");       // prints a space between the numbers
-//  Serial.print(y, DEC);    // print the acceleration in the Y axis
-//  Serial.print(" ");       // prints a space between the numbers
-//  Serial.print(z, DEC);  // print the acceleration in the Z axis
-
+  // subtract the reference reading
   x1 = x - x0;
   y1 = y - y0;
   z1 = z - z0;
 
-  float t = sqrt(x1*x1 + y1*y1 + z1*z1) * 2;
-
-//  Serial.print(" ");       // prints a space between the numbers
-//  Serial.println(t, DEC);  // print the acceleration in the Z axis
-
-
-  char buf[50];
- 
+  // calcuate the magnitude of the acceleration vector
+  float m = sqrt(x1*x1 + y1*y1 + z1*z1) * 2; 
   
-  if (t > callum)
-    callum = t;
+  // store the max value
+  if (m > maxForPeriod)
+    maxForPeriod = m;
   
-  // update the graph every 12 mins - all day to update
-  if (millis() - elapsedTime > 5000) {
+  // has the update period elapsed (millis wrap around is ignored) 
+  if (millis() - elapsedTime > (updatePeriod * 1000L)) {
 
+    // count the screen updates, after we reach the right edge of the scren, clear it.
     ct++;
     if (ct > 127) {
       ct = 0;
@@ -102,25 +143,32 @@ void loop()
     }
   
   
-    int iY = int(callum);
+    // plot the raw accelerometer magnitude in the y direction of the LCD
+    // and clamp to a max of 63 (y pixels)
+    int iY = int(maxForPeriod);
     if (iY > 63)
       iY = 63;
       
+    // the x value is the number of updates
     int iX = ct;
   
-    // draw the acceleration value, then refresh the axis
+    // draw the acceleration value
     glcd.drawline(lastX, lastY, iX, iY, BLACK);
     
+    // remember the last value
     lastX = iX;
     lastY = iY;
   
-    int temp1 = (t - (int)t) * 100;
-    sprintf(buf, "%d.%d      ", int(t), temp1);
+    // display the max value for the period - sprintf can't do floats
+    char buf[50];
+    int temp1 = (maxForPeriod - (int)maxForPeriod) * 100;
+    sprintf(buf, "%d.%d      ", int(maxForPeriod), temp1);
     glcd.drawstring(0,0, buf);
     glcd.display();
   
+    // reset the value and timer
     elapsedTime = millis();
-    callum = 0; 
+    maxForPeriod = 0; 
 
     // recalc the zero
     rezero(&xTot, &yTot, &zTot, &readingsInPeriod);
@@ -132,9 +180,12 @@ void loop()
 }
 
 
+/* ------------------------------------------------------------------------------------------------------ */
 void rezero(unsigned long *x, unsigned long *y, unsigned long *z, unsigned long *readingsInPeriod) {
   
-
+  // this routine recalculates the reference readings for the accelerometer as the
+  // average of all readings for the period.
+  
   x0 = *x / *readingsInPeriod;
   y0 = *y / *readingsInPeriod;
   z0 = *z / *readingsInPeriod;
@@ -148,23 +199,4 @@ void rezero(unsigned long *x, unsigned long *y, unsigned long *z, unsigned long 
 
 
 
-void MMA7260QMMA7260Qes() {
-
-  int tickLen;
-  
-  // y = 0
-  glcd.drawline(0, graphyYc, 127, graphyYc, BLACK);  
-  
-  // 5 degree ticks.  10 degree ticks are longer
-  for (int i = -30; i < 26; i+=5) {
-    
-    if (i % 10 == 0)
-      tickLen = 3;
-    else
-      tickLen = 1;
-    
-    glcd.drawline(0, graphyYc-i, tickLen, graphyYc-i, BLACK);  
-  
-  }
-}
 
