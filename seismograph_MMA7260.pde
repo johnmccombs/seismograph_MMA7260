@@ -49,7 +49,7 @@ int y0, x0, z0;
 
 // number of second between graph updates. 60 seconds give just over 2 hrs
 // across the this display
-#define updatePeriod 5
+#define updatePeriod 60
 
 // number of 
 unsigned long readingsInPeriod;
